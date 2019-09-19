@@ -1,13 +1,18 @@
+from collections import deque
+from random import randint, sample
+
 import numpy as np
+import tensorflow as tf
+from tensorflow.keras import Model, Sequential
+from tensorflow.keras.layers import Dense, Conv2D, Flatten, Input
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.losses import Huber
 
-from base import BaseNetwork
+class CDQN:
 
-
-class DQN(BaseNetwork):
-
-    def __init__(self, action_size: int, memory_size: int, lr: float):
+    def __init__(self, action_size: int, memory_size: int, image_shape: tuple):
         """
-        Initializer for Deep Q Network.
+        Initializer for Convolutional Deep-Q-Network.
 
         Args:
             action_size: Number of actions the agent can choose from.
@@ -15,40 +20,39 @@ class DQN(BaseNetwork):
             lr: Learning rate of the network.
         """
         self.action_size = action_size
-        self.memory = deque(max_len=memory_size)
-        self.lr = lr
-        self.network = build_model()
-        self.target_network = build_model()
+        self.memory = deque(maxlen=memory_size)
+        self.gamma = 0.6
+        self.epsilon = 0.1
+        self.image_shape = image_shape
+        self.network = self.build_model()
+        self.target_network = self.build_model()
 
 
     def build_model(self) -> Sequential:
         """
         Constructs and returns a Convolutional Deep-Q-Network
         """
-
         model = Sequential()
 
-        model.add(Conv2D(filters=32, kernel_size=8, strides=(4,4),
+        model.add(Conv2D(filters=8, kernel_size=4, strides=(2,2),
                          padding="valid", activation="relu",
-                         input_shape = self._image_shape))
+                         input_shape = self.image_shape))
 
-        model.add(Conv2D(filters=64, kernel_size=4, strides=(2,2),
-                         padding="valid", activation="relu",
-                         input_shape=self._image_shape))
+        #model.add(Conv2D(filters=64, kernel_size=4, strides=(2,2),
+        #                 padding="valid", activation="relu"))
 
-        model.add(Conv2D(filters=64, kernel_size=3, strides=(1,1),
-                         padding="valid", activation="relu",
-                         input_shape=self._image_shape))
+        #model.add(Conv2D(filters=64, kernel_size=3, strides=(1,1),
+        #                 padding="valid", activation="relu"))
 
         model.add(Flatten())
-        model.add(Dense(units=512, activation="relu"))
+        model.add(Dense(units=128, activation="relu"))
         model.add(Dense(self.action_size))
-        model.compile(loss=Huber(), optimizer=self.optimizer,
+        model.compile(loss=Huber(), optimizer=Adam(learning_rate=0.01),
                       metrics=["accuracy"])
         return model
 
 
-    def act(self, state: nparray) -> int:
+    def act(self, state: np.array) -> int:
         """
         Returns an action based on the following rule:
         1. If randomly generated number if below the exploration
@@ -61,15 +65,17 @@ class DQN(BaseNetwork):
         """
         # Explore
         if np.random.rand() <= self.epsilon:
-            return self.enviroment.action_space.sample()
+            return randint(0, self.action_size - 1)
 
         # Exploit
-        q_values = self.network.predict(state[..., tf.newaxis])
+        #print(state.shape)
+        state = np.expand_dims(np.asarray(state).astype(np.float64), axis=0)
+        q_values = self.network.predict(state)
         return np.argmax(q_values[0])
 
 
     def remember(self, state: np.array, action: int, reward: float,
-                  next_state: np.array, done: boolean) -> None:
+                  next_state: np.array, done: bool) -> None:
         """
         Saves the current state of the game for memory replay.
 
@@ -83,18 +89,23 @@ class DQN(BaseNetwork):
         self.memory.append((state, action, reward, next_state, done))
 
 
-    def experience_replay(self) -> None:
+    def experience_replay(self, batch_size) -> None:
         """
         Randomly samples a subset of the memory and trains the network with
         the sampled dataset.
+
+        Args:
+            batch_size: Size of subsample.
         """
-        minibatch = random.sample(self.memory, batch_size)
+        minibatch = sample(self.memory, batch_size)
         for state, action, reward, next_state, done in minibatch:
-            target = self.network.predict(state[..., tf.newaxis])
+            state = np.expand_dims(np.asarray(state).astype(np.float64), axis=0)
+            target = self.network.predict(state)
             if done:
                 target[0][action] = reward
             else:
-                t = self.target_network.predict(next_state[..., tf.newaxis])
+                next_state = np.expand_dims(np.asarray(next_state).astype(np.float64), axis=0)
+                t = self.target_network.predict(next_state)
                 target[0][action] = reward + self.gamma * np.max(t)
             self.network.fit(state, target, epochs=1, verbose=0)
 
