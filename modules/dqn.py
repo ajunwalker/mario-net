@@ -21,8 +21,10 @@ class CDQN:
         """
         self.action_size = action_size
         self.memory = deque(maxlen=memory_size)
-        self.gamma = 0.6
-        self.epsilon = 0.1
+        self.epsilon = 1.0
+        self.min_epsilon = 0.0001
+        self.epsilon_decay = 0.0001
+        self.gamma = 1
         self.image_shape = image_shape
         self.network = self.build_model()
         self.target_network = self.build_model()
@@ -65,10 +67,13 @@ class CDQN:
         """
         # Explore
         if np.random.rand() <= self.epsilon:
+
+            if self.epsilon > self.min_epsilon:
+                self.epsilon -= self.epsilon_decay
+
             return randint(0, self.action_size - 1)
 
         # Exploit
-        #print(state.shape)
         state = np.expand_dims(np.asarray(state).astype(np.float64), axis=0)
         q_values = self.network.predict(state)
         return np.argmax(q_values[0])
